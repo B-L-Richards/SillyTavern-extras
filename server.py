@@ -62,6 +62,9 @@ parser.add_argument(
 )
 parser.add_argument("--prompt-model", help="Load a custom prompt generation model")
 parser.add_argument("--embedding-model", help="Load a custom text embedding model")
+parser.add_argument("--chroma-host", help="Host IP for a remote ChromaDB instance")
+parser.add_argument("--chroma-port", help="HTTP port for a remote ChromaDB instance (defaults to 8000)")
+parser.add_argument("--chroma-folder", help="Path for chromadb persistence folder", default='.chroma_db')
 
 sd_group = parser.add_mutually_exclusive_group()
 
@@ -241,12 +244,35 @@ if "chromadb" in modules:
     from chromadb.config import Settings
     from sentence_transformers import SentenceTransformer
 
-    # disable chromadb telemetry
+    # Assume that the user wants in-memory unless a host is specified
+    # Also disable chromadb telemetry
     posthog.capture = lambda *args, **kwargs: None
-    chromadb_client = chromadb.Client(Settings(anonymized_telemetry=False))
+    if args.chroma_host is None:
+        chromadb_client = chromadb.Client(Settings(anonymized_telemetry=False, persist_directory=args.chroma_folder, chroma_db_impl='duckdb+parquet'))
+        print(f"ChromaDB is running in-memory with persistence. Persistence is stored in {args.chroma_folder}. Can be cleared by deleting the folder or purging db.")
+    else:
+        chroma_port=(
+            args.chroma_port if args.chroma_port else DEFAULT_CHROMA_PORT
+        )
+        chromadb_client = chromadb.Client(
+            Settings(
+                anonymized_telemetry=False,
+                chroma_api_impl="rest",
+                chroma_server_host=args.chroma_host,
+                chroma_server_http_port=chroma_port
+            )
+        )
+        print(f"ChromaDB is remotely configured at {args.chroma_host}:{chroma_port}")
+
     chromadb_embedder = SentenceTransformer(embedding_model)
     chromadb_embed_fn = chromadb_embedder.encode
 
+    # Check if the db is connected and running, otherwise tell the user
+    try:
+        chromadb_client.heartbeat()
+        print("Successfully pinged ChromaDB! Your client is successfully connected.")
+    except:
+        print("Could not ping ChromaDB! If you are running remotely, please check your host and port!")
 
 # Flask init
 app = Flask(__name__)
@@ -707,8 +733,11 @@ def chromadb_purge():
         name=f"chat-{chat_id_md5}", embedding_function=chromadb_embed_fn
     )
 
-    deleted = collection.delete()
-    print("ChromaDB embeddings deleted", len(deleted))
+    count = collection.count()
+    collection.delete()
+    #Write deletion to persistent folder
+    chromadb_client.persist()
+    print("ChromaDB embeddings deleted", count)
     return 'Ok', 200
 
 
@@ -755,6 +784,62 @@ def chromadb_query():
     ]
 
     return jsonify(messages)
+
+
+@app.route("/api/chromadb/export", methods=["POST"])
+@require_module("chromadb")
+def chromadb_export():
+    data = request.get_json()
+    if "chat_id" not in data or not isinstance(data["chat_id"], str):
+        abort(400, '"chat_id" is required')
+    
+    chat_id_md5 = hashlib.md5(data["chat_id"].encode()).hexdigest()
+    collection = chromadb_client.get_or_create_collection(
+        name=f"chat-{chat_id_md5}", embedding_function=chromadb_embed_fn
+    )
+    collection_content = collection.get()
+    documents = collection_content.get('documents', [])
+    ids = collection_content.get('ids', [])
+    metadatas = collection_content.get('metadatas', [])
+        
+    content = [
+        {
+            "id": ids[i],
+            "metadata": metadatas[i],
+            "document": documents[i],
+        }
+        for i in range(len(ids))
+    ]
+    
+    export = {
+    "chat_id": data["chat_id"],
+    "content": content
+    }
+    
+
+    return jsonify(export)
+
+@app.route("/api/chromadb/import", methods=["POST"])
+@require_module("chromadb")
+def chromadb_import():
+    data = request.get_json()
+    content = data['content']
+    if "chat_id" not in data or not isinstance(data["chat_id"], str):
+        abort(400, '"chat_id" is required')
+
+    chat_id_md5 = hashlib.md5(data["chat_id"].encode()).hexdigest()
+    collection = chromadb_client.get_or_create_collection(
+        name=f"chat-{chat_id_md5}", embedding_function=chromadb_embed_fn
+    )
+
+    documents = [item['document'] for item in content]
+    metadatas = [item['metadata'] for item in content]
+    ids = [item['id'] for item in content]
+
+
+    collection.upsert(documents=documents, metadatas=metadatas, ids=ids)
+
+    return jsonify({"count": len(ids)})
 
 
 if args.share:
