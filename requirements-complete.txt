@@ -1,6 +1,7 @@
 flask
 flask-cloudflared
 flask-cors
+flask-compress
 markdown
 Pillow
 colorama
@@ -15,3 +16,4 @@ diffusers==0.16.1
 silero-api-server
 chromadb
 sentence_transformers
+edge-tts

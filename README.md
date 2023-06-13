@@ -2,17 +2,20 @@
 ## What is this
 A set of APIs for various SillyTavern extensions.
 
-**You need to run the latest version of my TavernAI fork. Grab it here: [Direct link to ZIP](https://github.com/Cohee1207/SillyTavern/archive/refs/heads/main.zip), [Git repository](https://github.com/Cohee1207/SillyTavern)**
+**You need to run the latest version of SillyTavern. Grab it here: [How to install](https://docs.sillytavern.app/installation/windows/), [Git repository](https://github.com/SillyTavern/SillyTavern)**
 
 All modules require at least 6 Gb of VRAM to run. With Stable Diffusion disabled, it will probably fit in 4 Gb.
 Alternatively, everything could also be run on the CPU.
 
-Try on Colab (will give you a link to Extras API):  <a target="_blank" href="https://colab.research.google.com/github/Cohee1207/SillyTavern/blob/main/colab/GPU.ipynb">
+Try on Colab (will give you a link to Extras API):  <a target="_blank" href="https://colab.research.google.com/github/SillyTavern/SillyTavern/blob/main/colab/GPU.ipynb">
   <img src="https://colab.research.google.com/assets/colab-badge.svg" alt="Open In Colab"/>
 </a>
 
 Colab link:
-https://colab.research.google.com/github/Cohee1207/SillyTavern/blob/main/colab/GPU.ipynb
+https://colab.research.google.com/github/SillyTavern/SillyTavern/blob/main/colab/GPU.ipynb
+
+Documentation:
+https://docs.sillytavern.app/
 
 ## How to run
 ### :exclamation: **IMPORTANT!**
@@ -47,7 +50,7 @@ There are some folks in the community having success running Extras on their pho
 
 #### ❗ IMPORTANT!
 
-I will not provide any support for running this on Android. Direct all your questions to the creator of this guide.
+We will NOT provide any support for running this on Android. Direct all your questions to the creator of this guide.
 
 ### 💻 Locally
 #### Option 1 - Conda (recommended) 🐍
@@ -75,7 +78,7 @@ conda install pytorch=2.0.0 torchvision=0.15.0 torchaudio=2.0.0 pytorch-cuda=11.
 ```
 * Clone this repository
 ```
-git clone https://github.com/Cohee1207/SillyTavern-extras
+git clone https://github.com/SillyTavern/SillyTavern-extras
 ```
 * Navigated to the freshly cloned repository
 ```
@@ -90,7 +93,7 @@ pip install -r requirements.txt
 python server.py --enable-modules=caption,summarize,classify
 ```
 * Copy the Extra's server API URL listed in the console window after it finishes loading up. On local installs, this defaults to `http://localhost:5100`.
-* Open your SillyTavern [config.conf](https://github.com/Cohee1207/SillyTavern/blob/dev/config.conf) file (located in the base install folder), and look for a line "`const enableExtensions`". Make sure that line has "`= true`", and not "`= false`". 
+* Open your SillyTavern [config.conf](https://github.com/SillyTavern/SillyTavern/blob/dev/config.conf) file (located in the base install folder), and look for a line "`const enableExtensions`". Make sure that line has "`= true`", and not "`= false`".
 * Start your SillyTavern server
 * Open the Extensions panel (via the 'Stacked Blocks' icon at the top of the page), paste the API URL into the input box, and click "Connect" to connect to the Extras extension server.
 * To run again, simply activate the environment and run these commands. Be sure to the additional options for server.py (see below) that your setup requires.
@@ -104,7 +107,7 @@ python server.py
 * Install git: https://git-scm.com/downloads
 * Clone the repo:
 ```
-git clone https://github.com/Cohee1207/SillyTavern-extras
+git clone https://github.com/SillyTavern/SillyTavern-extras
 cd SillyTavern-extras
 ```
 * Run `python -m pip install -r requirements.txt`
@@ -120,10 +123,9 @@ cd SillyTavern-extras
 | `caption`   | Image captioning                  | ✔️ Yes        |
 | `summarize` | Text summarization                | ✔️ Yes    |
 | `classify`  | Text sentiment classification     | ✔️ Yes      |
-| `keywords`  | Text key phrases extraction       | ✔️ Yes      |
-| `prompt`    | SD prompt generation from text    | ✔️ Yes     |
 | `sd`        | Stable Diffusion image generation | :x: No (✔️ remote)      |
-| `tts`       | [Silero TTS server](https://github.com/ouoertheo/silero-api-server) | :x: No |
+| `silero-tts`       | [Silero TTS server](https://github.com/ouoertheo/silero-api-server) | :x: No |
+| `edge-tts` | [Microsoft Edge TTS client](https://github.com/rany2/edge-tts) | ✔️ Yes |
 | `chromadb`  | Infinity context server           | :x: No |
 
 
@@ -134,12 +136,11 @@ cd SillyTavern-extras
 | `--port`                 | Specify the port on which the application is hosted. Default: **5100** |
 | `--listen`               | Host the app on the local network                                      |
 | `--share`                | Share the app on CloudFlare tunnel                                     |
+| `--secure`               | Adds API key authentication requirements. Highly recommended when paired with share! |
 | `--cpu`                  | Run the models on the CPU instead of CUDA                              |
 | `--summarization-model`  | Load a custom summarization model.<br>Expects a HuggingFace model ID.<br>Default: [Qiliang/bart-large-cnn-samsum-ChatGPT_v3](https://huggingface.co/Qiliang/bart-large-cnn-samsum-ChatGPT_v3) |
 | `--classification-model` | Load a custom sentiment classification model.<br>Expects a HuggingFace model ID.<br>Default (6 emotions): [nateraw/bert-base-uncased-emotion](https://huggingface.co/nateraw/bert-base-uncased-emotion)<br>Other solid option is (28 emotions): [joeddav/distilbert-base-uncased-go-emotions-student](https://huggingface.co/joeddav/distilbert-base-uncased-go-emotions-student)<br>For Chinese language: [touch20032003/xuyuan-trial-sentiment-bert-chinese](https://huggingface.co/touch20032003/xuyuan-trial-sentiment-bert-chinese) |
 | `--captioning-model`     | Load a custom captioning model.<br>Expects a HuggingFace model ID.<br>Default: [Salesforce/blip-image-captioning-large](https://huggingface.co/Salesforce/blip-image-captioning-large) |
-| `--keyphrase-model`      | Load a custom key phrase extraction model.<br>Expects a HuggingFace model ID.<br>Default: [ml6team/keyphrase-extraction-distilbert-inspec](https://huggingface.co/ml6team/keyphrase-extraction-distilbert-inspec) |
-| `--prompt-model`         | Load a custom prompt generation model.<br>Expects a HuggingFace model ID.<br>Default: [FredZhang7/anime-anything-promptgen-v2](https://huggingface.co/FredZhang7/anime-anything-promptgen-v2) |
 | `--embedding-model`      | Load a custom text embedding model.<br>Expects a HuggingFace model ID.<br>Default: [sentence-transformers/all-mpnet-base-v2](https://huggingface.co/sentence-transformers/all-mpnet-base-v2) |
 | `--chroma-host`          | Specifies a host IP for a remote ChromaDB server. |
 | `--chroma-port`          | Specifies an HTTP port for a remote ChromaDB server.<br>Default: `8000` |
@@ -157,10 +158,14 @@ ChromaDB is a blazing fast and open source database that is used for long-term m
 NOTE: You should **NOT** run ChromaDB on a cloud server. There are no methods for authentication (yet), so unless you want to expose an unauthenticated ChromaDB to the world, run this on a local server in your LAN.
 
 ### In-memory setup
-Run the extras server with the `chromadb` module enabled.
+
+Run the extras server with the `chromadb` module enabled (recommended).
 
 ### Remote setup
-Prerequisites: Docker, Docker compose (make sure you're running in rootless mode with the systemd service enabled if on Linux)
+
+Use this if you want to use ChromaDB with docker or host it remotely. If you don't know what that means and only want to use ChromaDB with ST on your local device, use the 'in-memory' instructions instead.
+
+Prerequisites: Docker, Docker compose (make sure you're running in rootless mode with the systemd service enabled if on Linux).
 
 Steps:
 
@@ -168,7 +173,7 @@ Steps:
 2. Run `docker-compose up -d --build` to build ChromaDB. This may take a long time depending on your system
 3. Once the build process is finished, ChromaDB should be running in the background. You can check with the command `docker ps`
 4. On your client machine, specify your local server ip in the `--chroma-host` argument (ex. `--chroma-host=192.168.1.10`)
-  
+
 
 If you are running ChromaDB on the same machine as SillyTavern, you will have to change the port of one of the services. To do this for ChromaDB:
 
@@ -263,34 +268,6 @@ None
 > 2. List of categories defined by the summarization model
 > 3. Value range from 0.0 to 1.0
 
-### Key phrase extraction
-`POST /api/keywords`
-#### **Input**
-```
-{ "text": "text to be scanned for key phrases" }
-```
-#### **Output**
-```
-{
-    "keywords": [
-        "array of",
-        "extracted",
-        "keywords",
-    ]
-}
-```
-
-### Stable Diffusion prompt generation
-`POST /api/prompt`
-#### **Input**
-```
-{ "name": "character name (optional)", "text": "textual summary of a character" }
-```
-#### **Output**
-```
-{ "prompts": [ "array of generated prompts" ] }
-```
-
 ### Stable Diffusion image generation
 `POST /api/image`
 #### **Input**
@@ -337,7 +314,7 @@ None
 { "previous_model": "name of the previous model", "current_model": "name of the newly loaded model" }
 ```
 
-### Generate TTS voice
+### Generate Silero TTS voice
 `POST /api/tts/generate`
 #### **Input**
 ```
@@ -346,7 +323,7 @@ None
 #### **Output**
 WAV audio file.
 
-### Get TTS voices
+### Get Silero TTS voices
 `GET /api/tts/speakers`
 #### **Output**
 ```
@@ -359,7 +336,7 @@ WAV audio file.
 ]
 ```
 
-### Get TTS voice sample
+### Get Silero TTS voice sample
 `GET /api/tts/sample/<voice_id>`
 #### **Output**
 WAV audio file.
@@ -372,19 +349,19 @@ WAV audio file.
     "chat_id": "chat1 - 2023-12-31",
     "messages": [
         {
-            "id": "633a4bd1-8350-46b5-9ef2-f5d27acdecb7", 
+            "id": "633a4bd1-8350-46b5-9ef2-f5d27acdecb7",
             "date": 1684164339877,
             "role": "user",
             "content": "Hello, AI world!",
             "meta": "this is meta"
         },
         {
-            "id": "8a2ed36b-c212-4a1b-84a3-0ffbe0896506", 
+            "id": "8a2ed36b-c212-4a1b-84a3-0ffbe0896506",
             "date": 1684164411759,
             "role": "assistant",
             "content": "Hello, Hooman!"
         },
-    ] 
+    ]
 }
 ```
 #### **Output**
@@ -406,7 +383,7 @@ WAV audio file.
 ```
 [
     {
-        "id": "633a4bd1-8350-46b5-9ef2-f5d27acdecb7", 
+        "id": "633a4bd1-8350-46b5-9ef2-f5d27acdecb7",
         "date": 1684164339877,
         "role": "user",
         "content": "Hello, AI world!",
@@ -414,7 +391,7 @@ WAV audio file.
         "meta": "this is meta"
     },
     {
-        "id": "8a2ed36b-c212-4a1b-84a3-0ffbe0896506", 
+        "id": "8a2ed36b-c212-4a1b-84a3-0ffbe0896506",
         "date": 1684164411759,
         "role": "assistant",
         "content": "Hello, Hooman!",
@@ -429,3 +406,19 @@ WAV audio file.
 ```
 { "chat_id": "chat1 - 2023-04-12" }
 ```
+
+### Get a list of Edge TTS voices
+`GET /api/edge-tts/list`
+#### **Output**
+```
+[{'Name': 'Microsoft Server Speech Text to Speech Voice (af-ZA, AdriNeural)', 'ShortName': 'af-ZA-AdriNeural', 'Gender': 'Female', 'Locale': 'af-ZA', 'SuggestedCodec': 'audio-24khz-48kbitrate-mono-mp3', 'FriendlyName': 'Microsoft Adri Online (Natural) - Afrikaans (South Africa)', 'Status': 'GA', 'VoiceTag': {'ContentCategories': ['General'], 'VoicePersonalities': ['Friendly', 'Positive']}}]
+```
+
+### Generate Edge TTS voice
+`POST /api/edge-tts/generate`
+#### **Input**
+```
+{ "text": "Text to narrate", "voice": "af-ZA-AdriNeural", "rate": 0 }
+```
+#### **Output**
+MP3 audio file.

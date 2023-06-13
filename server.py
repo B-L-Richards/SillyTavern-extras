@@ -3,22 +3,25 @@ from flask import (
     Flask,
     jsonify,
     request,
+    Response,
     render_template_string,
     abort,
     send_from_directory,
     send_file,
 )
 from flask_cors import CORS
+from flask_compress import Compress
 import markdown
 import argparse
 from transformers import AutoTokenizer, AutoProcessor, pipeline
 from transformers import AutoModelForCausalLM, AutoModelForSeq2SeqLM
-from transformers import BlipForConditionalGeneration, GPT2Tokenizer
+from transformers import BlipForConditionalGeneration
 import unicodedata
 import torch
 import time
 import os
 import gc
+import secrets
 from PIL import Image
 import base64
 from io import BytesIO
@@ -40,7 +43,7 @@ class SplitArgs(argparse.Action):
 
 # Script arguments
 parser = argparse.ArgumentParser(
-    prog="TavernAI Extras", description="Web API for transformers models"
+    prog="SillyTavern Extras", description="Web API for transformers models"
 )
 parser.add_argument(
     "--port", type=int, help="Specify the port on which the application is hosted"
@@ -57,14 +60,13 @@ parser.add_argument(
     "--classification-model", help="Load a custom text classification model"
 )
 parser.add_argument("--captioning-model", help="Load a custom captioning model")
-parser.add_argument(
-    "--keyphrase-model", help="Load a custom keyphrase extraction model"
-)
-parser.add_argument("--prompt-model", help="Load a custom prompt generation model")
 parser.add_argument("--embedding-model", help="Load a custom text embedding model")
 parser.add_argument("--chroma-host", help="Host IP for a remote ChromaDB instance")
 parser.add_argument("--chroma-port", help="HTTP port for a remote ChromaDB instance (defaults to 8000)")
 parser.add_argument("--chroma-folder", help="Path for chromadb persistence folder", default='.chroma_db')
+parser.add_argument(
+    "--secure", action="store_true", help="Enforces the use of an API key"
+)
 
 sd_group = parser.add_mutually_exclusive_group()
 
@@ -115,10 +117,6 @@ classification_model = (
 captioning_model = (
     args.captioning_model if args.captioning_model else DEFAULT_CAPTIONING_MODEL
 )
-keyphrase_model = (
-    args.keyphrase_model if args.keyphrase_model else DEFAULT_KEYPHRASE_MODEL
-)
-prompt_model = args.prompt_model if args.prompt_model else DEFAULT_PROMPT_MODEL
 embedding_model = (
     args.embedding_model if args.embedding_model else DEFAULT_EMBEDDING_MODEL
 )
@@ -174,21 +172,6 @@ if "classify" in modules:
         torch_dtype=torch_dtype,
     )
 
-if "keywords" in modules:
-    print("Initializing a keyword extraction pipeline...")
-    import pipelines as pipelines
-
-    keyphrase_pipe = pipelines.KeyphraseExtractionPipeline(keyphrase_model)
-
-if "prompt" in modules:
-    print("Initializing a prompt generator")
-    gpt_tokenizer = GPT2Tokenizer.from_pretrained("distilgpt2")
-    gpt_tokenizer.add_special_tokens({"pad_token": "[PAD]"})
-    gpt_model = AutoModelForCausalLM.from_pretrained(prompt_model)
-    prompt_generator = pipeline(
-        "text-generation", model=gpt_model, tokenizer=gpt_tokenizer
-    )
-
 if "sd" in modules and not sd_use_remote:
     from diffusers import StableDiffusionPipeline
     from diffusers import EulerAncestralDiscreteScheduler
@@ -226,6 +209,12 @@ elif "sd" in modules and sd_use_remote:
         modules.remove("sd")
 
 if "tts" in modules:
+    print("tts module is deprecated. Please use silero-tts instead.")
+    modules.remove("tts")
+    modules.append("silero-tts")
+
+
+if "silero-tts" in modules:
     if not os.path.exists(SILERO_SAMPLES_PATH):
         os.makedirs(SILERO_SAMPLES_PATH)
     print("Initializing Silero TTS server")
@@ -236,6 +225,12 @@ if "tts" in modules:
         print("Generating Silero TTS samples...")
         tts_service.update_sample_text(SILERO_SAMPLE_TEXT)
         tts_service.generate_samples()
+
+
+if "edge-tts" in modules:
+    print("Initializing Edge TTS client")
+    import tts_edge as edge
+
 
 if "chromadb" in modules:
     print("Initializing ChromaDB")
@@ -265,7 +260,7 @@ if "chromadb" in modules:
         print(f"ChromaDB is remotely configured at {args.chroma_host}:{chroma_port}")
 
     chromadb_embedder = SentenceTransformer(embedding_model)
-    chromadb_embed_fn = chromadb_embedder.encode
+    chromadb_embed_fn = lambda *args, **kwargs: chromadb_embedder.encode(*args, **kwargs).tolist()
 
     # Check if the db is connected and running, otherwise tell the user
     try:
@@ -277,6 +272,7 @@ if "chromadb" in modules:
 # Flask init
 app = Flask(__name__)
 CORS(app)  # allow cross-domain requests
+Compress(app) # compress responses
 app.config["MAX_CONTENT_LENGTH"] = 100 * 1024 * 1024
 
 
@@ -358,29 +354,6 @@ def normalize_string(input: str) -> str:
     return output
 
 
-def extract_keywords(text: str) -> list:
-    punctuation = "(){}[]\n\r<>"
-    trans = str.maketrans(punctuation, " " * len(punctuation))
-    text = text.translate(trans)
-    text = normalize_string(text)
-    return list(keyphrase_pipe(text))
-
-
-def generate_prompt(keywords: list, length: int = 100, num: int = 4) -> str:
-    prompt = ", ".join(keywords)
-    outs = prompt_generator(
-        prompt,
-        max_length=length,
-        num_return_sequences=num,
-        do_sample=True,
-        repetition_penalty=1.2,
-        temperature=0.7,
-        top_k=4,
-        early_stopping=True,
-    )
-    return [out["generated_text"] for out in outs]
-
-
 def generate_image(data: dict) -> Image:
     prompt = normalize_string(f'{data["prompt_prefix"]} {data["prompt"]}')
 
@@ -415,16 +388,44 @@ def generate_image(data: dict) -> Image:
 
 
 def image_to_base64(image: Image, quality: int = 75) -> str:
-    buffered = BytesIO()
-    image.save(buffered, format="JPEG", quality=quality)
-    img_str = base64.b64encode(buffered.getvalue()).decode("utf-8")
+    buffer = BytesIO()
+    image.convert("RGB")
+    image.save(buffer, format="JPEG", quality=quality)
+    img_str = base64.b64encode(buffer.getvalue()).decode("utf-8")
     return img_str
 
+# Reads an API key from an already existing file. If that file doesn't exist, create it.
+if args.secure:
+    try:
+        with open("api_key.txt", "r") as txt:
+            api_key = txt.read().replace('\n', '')
+    except:
+        api_key = secrets.token_hex(5)
+        with open("api_key.txt", "w") as txt:
+            txt.write(api_key)
+
+    print(f"Your API key is {api_key}")
+elif args.share and args.secure != True:
+    print("WARNING: This instance is publicly exposed without an API key! It is highly recommended to restart with the \"--secure\" argument!")
+else:
+    print("No API key given because you are running locally.")
 
 @app.before_request
-# Request time measuring
 def before_request():
+    # Request time measuring
     request.start_time = time.time()
+
+    # Checks if an API key is present and valid, otherwise return unauthorized
+    # The options check is required so CORS doesn't get angry
+    try:
+        if request.method != 'OPTIONS' and args.secure and request.authorization.token != api_key:
+            print(f"WARNING: Unauthorized API key access from {request.remote_addr}")
+            response = jsonify({ 'error': '401: Invalid API key' })
+            response.status_code = 401
+            return response
+    except Exception as e:
+        print(f"API key check error: {e}")
+        return "401 Unauthorized\n{}\n\n".format(e), 401
 
 
 @app.after_request
@@ -519,39 +520,6 @@ def api_classify_labels():
     classification = classify_text("")
     labels = [x["label"] for x in classification]
     return jsonify({"labels": labels})
-
-
-@app.route("/api/keywords", methods=["POST"])
-@require_module("keywords")
-def api_keywords():
-    data = request.get_json()
-
-    if "text" not in data or not isinstance(data["text"], str):
-        abort(400, '"text" is required')
-
-    print("Keywords input:", data["text"], sep="\n")
-    keywords = extract_keywords(data["text"])
-    print("Keywords output:", keywords, sep="\n")
-    return jsonify({"keywords": keywords})
-
-
-@app.route("/api/prompt", methods=["POST"])
-@require_module("prompt")
-def api_prompt():
-    data = request.get_json()
-
-    if "text" not in data or not isinstance(data["text"], str):
-        abort(400, '"text" is required')
-
-    keywords = extract_keywords(data["text"])
-
-    if "name" in data and isinstance(data["name"], str):
-        keywords.insert(0, data["name"])
-
-    print("Prompt input:", data["text"], sep="\n")
-    prompts = generate_prompt(keywords)
-    print("Prompt output:", prompts, sep="\n")
-    return jsonify({"prompts": prompts})
 
 
 @app.route("/api/image", methods=["POST"])
@@ -657,6 +625,7 @@ def get_modules():
 
 
 @app.route("/api/tts/speakers", methods=["GET"])
+@require_module("silero-tts")
 def tts_speakers():
     voices = [
         {
@@ -670,6 +639,7 @@ def tts_speakers():
 
 
 @app.route("/api/tts/generate", methods=["POST"])
+@require_module("silero-tts")
 def tts_generate():
     voice = request.get_json()
     if "text" not in voice or not isinstance(voice["text"], str):
@@ -687,8 +657,38 @@ def tts_generate():
 
 
 @app.route("/api/tts/sample/<speaker>", methods=["GET"])
+@require_module("silero-tts")
 def tts_play_sample(speaker: str):
     return send_from_directory(SILERO_SAMPLES_PATH, f"{speaker}.wav")
+
+
+@app.route("/api/edge-tts/list", methods=["GET"])
+@require_module("edge-tts")
+def edge_tts_list():
+    voices = edge.get_voices()
+    return jsonify(voices)
+
+
+@app.route("/api/edge-tts/generate", methods=["POST"])
+@require_module("edge-tts")
+def edge_tts_generate():
+    data = request.get_json()
+    if "text" not in data or not isinstance(data["text"], str):
+        abort(400, '"text" is required')
+    if "voice" not in data or not isinstance(data["voice"], str):
+        abort(400, '"voice" is required')
+    if "rate" in data and isinstance(data['rate'], int):
+        rate = data['rate']
+    else:
+        rate = 0
+    # Remove asterisks
+    data["text"] = data["text"].replace("*", "")
+    try:
+        audio = edge.generate_audio(text=data["text"], voice=data["voice"], rate=rate)
+        return Response(audio, mimetype="audio/mpeg")
+    except Exception as e:
+        print(e)
+        abort(500, data["voice"])
 
 
 @app.route("/api/chromadb", methods=["POST"])
@@ -792,7 +792,7 @@ def chromadb_export():
     data = request.get_json()
     if "chat_id" not in data or not isinstance(data["chat_id"], str):
         abort(400, '"chat_id" is required')
-    
+
     chat_id_md5 = hashlib.md5(data["chat_id"].encode()).hexdigest()
     collection = chromadb_client.get_or_create_collection(
         name=f"chat-{chat_id_md5}", embedding_function=chromadb_embed_fn
@@ -801,7 +801,7 @@ def chromadb_export():
     documents = collection_content.get('documents', [])
     ids = collection_content.get('ids', [])
     metadatas = collection_content.get('metadatas', [])
-        
+
     content = [
         {
             "id": ids[i],
@@ -810,12 +810,12 @@ def chromadb_export():
         }
         for i in range(len(ids))
     ]
-    
+
     export = {
     "chat_id": data["chat_id"],
     "content": content
     }
-    
+
 
     return jsonify(export)
 
