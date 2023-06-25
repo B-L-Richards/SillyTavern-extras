@@ -55,6 +55,8 @@ parser.add_argument(
     "--share", action="store_true", help="Share the app on CloudFlare tunnel"
 )
 parser.add_argument("--cpu", action="store_true", help="Run the models on the CPU")
+parser.add_argument("--cuda", action="store_false", dest="cpu", help="Run the models on the GPU")
+parser.set_defaults(cpu=True)
 parser.add_argument("--summarization-model", help="Load a custom summarization model")
 parser.add_argument(
     "--classification-model", help="Load a custom text classification model"
@@ -64,6 +66,7 @@ parser.add_argument("--embedding-model", help="Load a custom text embedding mode
 parser.add_argument("--chroma-host", help="Host IP for a remote ChromaDB instance")
 parser.add_argument("--chroma-port", help="HTTP port for a remote ChromaDB instance (defaults to 8000)")
 parser.add_argument("--chroma-folder", help="Path for chromadb persistence folder", default='.chroma_db')
+parser.add_argument('--chroma-persist', help="Chromadb persistence", default=True, action=argparse.BooleanOptionalAction)
 parser.add_argument(
     "--secure", action="store_true", help="Enforces the use of an API key"
 )
@@ -72,7 +75,7 @@ sd_group = parser.add_mutually_exclusive_group()
 
 local_sd = sd_group.add_argument_group("sd-local")
 local_sd.add_argument("--sd-model", help="Load a custom SD image generation model")
-local_sd.add_argument("--sd-cpu", help="Force the SD pipeline to run on the CPU")
+local_sd.add_argument("--sd-cpu", help="Force the SD pipeline to run on the CPU", action="store_true")
 
 remote_sd = sd_group.add_argument_group("sd-remote")
 remote_sd.add_argument(
@@ -142,6 +145,11 @@ if len(modules) == 0:
 device_string = "cuda:0" if torch.cuda.is_available() and not args.cpu else "cpu"
 device = torch.device(device_string)
 torch_dtype = torch.float32 if device_string == "cpu" else torch.float16
+
+if not torch.cuda.is_available() and not args.cpu:
+    print(f"{Fore.YELLOW}{Style.BRIGHT}torch-cuda is not supported on this device. Defaulting to CPU mode.{Style.RESET_ALL}")
+
+print(f"{Fore.GREEN}{Style.BRIGHT}Using torch device: {device_string}{Style.RESET_ALL}")
 
 if "caption" in modules:
     print("Initializing an image captioning model...")
@@ -243,8 +251,12 @@ if "chromadb" in modules:
     # Also disable chromadb telemetry
     posthog.capture = lambda *args, **kwargs: None
     if args.chroma_host is None:
-        chromadb_client = chromadb.Client(Settings(anonymized_telemetry=False, persist_directory=args.chroma_folder, chroma_db_impl='duckdb+parquet'))
-        print(f"ChromaDB is running in-memory with persistence. Persistence is stored in {args.chroma_folder}. Can be cleared by deleting the folder or purging db.")
+        if args.chroma_persist:
+            chromadb_client = chromadb.Client(Settings(anonymized_telemetry=False, persist_directory=args.chroma_folder, chroma_db_impl='duckdb+parquet'))
+            print(f"ChromaDB is running in-memory with persistence. Persistence is stored in {args.chroma_folder}. Can be cleared by deleting the folder or purging db.")
+        else:
+            chromadb_client = chromadb.Client(Settings(anonymized_telemetry=False))
+            print(f"ChromaDB is running in-memory without persistence.")
     else:
         chroma_port=(
             args.chroma_port if args.chroma_port else DEFAULT_CHROMA_PORT
@@ -394,6 +406,7 @@ def image_to_base64(image: Image, quality: int = 75) -> str:
     img_str = base64.b64encode(buffer.getvalue()).decode("utf-8")
     return img_str
 
+ignore_auth = []
 # Reads an API key from an already existing file. If that file doesn't exist, create it.
 if args.secure:
     try:
@@ -410,6 +423,16 @@ elif args.share and args.secure != True:
 else:
     print("No API key given because you are running locally.")
 
+
+def is_authorize_ignored(request):
+    view_func = app.view_functions.get(request.endpoint)
+
+    if view_func is not None:
+        if view_func in ignore_auth:
+            return True
+    return False
+
+
 @app.before_request
 def before_request():
     # Request time measuring
@@ -418,7 +441,7 @@ def before_request():
     # Checks if an API key is present and valid, otherwise return unauthorized
     # The options check is required so CORS doesn't get angry
     try:
-        if request.method != 'OPTIONS' and args.secure and request.authorization.token != api_key:
+        if request.method != 'OPTIONS' and args.secure and is_authorize_ignored(request) == False and getattr(request.authorization, 'token', '') != api_key:
             print(f"WARNING: Unauthorized API key access from {request.remote_addr}")
             response = jsonify({ 'error': '401: Invalid API key' })
             response.status_code = 401
@@ -802,7 +825,7 @@ def chromadb_export():
     ids = collection_content.get('ids', [])
     metadatas = collection_content.get('metadatas', [])
 
-    content = [
+    unsorted_content = [
         {
             "id": ids[i],
             "metadata": metadatas[i],
@@ -811,11 +834,12 @@ def chromadb_export():
         for i in range(len(ids))
     ]
 
-    export = {
-    "chat_id": data["chat_id"],
-    "content": content
-    }
+    sorted_content = sorted(unsorted_content, key=lambda x: x['metadata']['date'])
 
+    export = {
+        "chat_id": data["chat_id"],
+        "content": sorted_content
+    }
 
     return jsonify(export)
 
@@ -859,4 +883,5 @@ if args.share:
         cloudflare = _run_cloudflared(port)
     print("Running on", cloudflare)
 
+ignore_auth.append(tts_play_sample)
 app.run(host=host, port=port)
