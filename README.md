@@ -22,6 +22,8 @@ https://docs.sillytavern.app/
 
 If you want to use the most advanced features (like Stable Diffusion, TTS), change that to **requirements-complete.txt** in commands below. See [Modules](#modules) section for more details.
 
+If you run on Apple Silicon (M1/M2), use the **requirements-silicon.txt** file instead.
+
 ### Getting an error when installing from requirements-complete.txt?
 
 > ERROR: Could not build wheels for hnswlib, which is required to install pyproject.toml-based projects
@@ -137,7 +139,9 @@ cd SillyTavern-extras
 | `--share`                | Share the app on CloudFlare tunnel                                     |
 | `--secure`               | Adds API key authentication requirements. Highly recommended when paired with share! |
 | `--cpu`                  | Run the models on the CPU instead of CUDA. Enabled by default. |
+| `--mps` or `--m1`        | Run the models on Apple Silicon. Only for M1 and M2 processors. |
 | `--cuda`                 | Uses CUDA (GPU+VRAM) to run modules if it is available. Otherwise, falls back to using CPU. |
+| `--cuda-device`          | Specifies a CUDA device to use. Defaults to `cuda:0` (first available GPU). |
 | `--summarization-model`  | Load a custom summarization model.<br>Expects a HuggingFace model ID.<br>Default: [Qiliang/bart-large-cnn-samsum-ChatGPT_v3](https://huggingface.co/Qiliang/bart-large-cnn-samsum-ChatGPT_v3) |
 | `--classification-model` | Load a custom sentiment classification model.<br>Expects a HuggingFace model ID.<br>Default (6 emotions): [nateraw/bert-base-uncased-emotion](https://huggingface.co/nateraw/bert-base-uncased-emotion)<br>Other solid option is (28 emotions): [joeddav/distilbert-base-uncased-go-emotions-student](https://huggingface.co/joeddav/distilbert-base-uncased-go-emotions-student)<br>For Chinese language: [touch20032003/xuyuan-trial-sentiment-bert-chinese](https://huggingface.co/touch20032003/xuyuan-trial-sentiment-bert-chinese) |
 | `--captioning-model`     | Load a custom captioning model.<br>Expects a HuggingFace model ID.<br>Default: [Salesforce/blip-image-captioning-large](https://huggingface.co/Salesforce/blip-image-captioning-large) |

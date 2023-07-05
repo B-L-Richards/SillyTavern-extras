@@ -40,6 +40,16 @@ class SplitArgs(argparse.Action):
             namespace, self.dest, values.replace('"', "").replace("'", "").split(",")
         )
 
+#Setting Root Folders for Silero Generations so it is compatible with STSL, should not effect regular runs. - Rolyat
+parent_dir = os.path.dirname(os.path.abspath(__file__))
+SILERO_SAMPLES_PATH = os.path.join(parent_dir, "tts_samples")
+SILERO_SAMPLE_TEXT = os.path.join(parent_dir)
+
+# Create directories if they don't exist
+if not os.path.exists(SILERO_SAMPLES_PATH):
+    os.makedirs(SILERO_SAMPLES_PATH)
+if not os.path.exists(SILERO_SAMPLE_TEXT):
+    os.makedirs(SILERO_SAMPLE_TEXT)
 
 # Script arguments
 parser = argparse.ArgumentParser(
@@ -56,6 +66,8 @@ parser.add_argument(
 )
 parser.add_argument("--cpu", action="store_true", help="Run the models on the CPU")
 parser.add_argument("--cuda", action="store_false", dest="cpu", help="Run the models on the GPU")
+parser.add_argument("--cuda-device", help="Specify the CUDA device to use")
+parser.add_argument("--mps", "--apple", "--m1", "--m2", action="store_false", dest="cpu", help="Run the models on Apple Silicon")
 parser.set_defaults(cpu=True)
 parser.add_argument("--summarization-model", help="Load a custom summarization model")
 parser.add_argument(
@@ -66,7 +78,7 @@ parser.add_argument("--embedding-model", help="Load a custom text embedding mode
 parser.add_argument("--chroma-host", help="Host IP for a remote ChromaDB instance")
 parser.add_argument("--chroma-port", help="HTTP port for a remote ChromaDB instance (defaults to 8000)")
 parser.add_argument("--chroma-folder", help="Path for chromadb persistence folder", default='.chroma_db')
-parser.add_argument('--chroma-persist', help="Chromadb persistence", default=True, action=argparse.BooleanOptionalAction)
+parser.add_argument('--chroma-persist', help="ChromaDB persistence", default=True, action=argparse.BooleanOptionalAction)
 parser.add_argument(
     "--secure", action="store_true", help="Enforces the use of an API key"
 )
@@ -142,12 +154,16 @@ if len(modules) == 0:
     print(f"Example: --enable-modules=caption,summarize{Style.RESET_ALL}")
 
 # Models init
-device_string = "cuda:0" if torch.cuda.is_available() and not args.cpu else "cpu"
+cuda_device = DEFAULT_CUDA_DEVICE if not args.cuda_device else args.cuda_device
+device_string = cuda_device if torch.cuda.is_available() and not args.cpu else 'mps' if torch.backends.mps.is_available() and not args.cpu else 'cpu'
 device = torch.device(device_string)
-torch_dtype = torch.float32 if device_string == "cpu" else torch.float16
+torch_dtype = torch.float32 if device_string != cuda_device  else torch.float16
 
 if not torch.cuda.is_available() and not args.cpu:
-    print(f"{Fore.YELLOW}{Style.BRIGHT}torch-cuda is not supported on this device. Defaulting to CPU mode.{Style.RESET_ALL}")
+    print(f"{Fore.YELLOW}{Style.BRIGHT}torch-cuda is not supported on this device.{Style.RESET_ALL}")
+    if not torch.backends.mps.is_available() and not args.cpu:
+        print(f"{Fore.YELLOW}{Style.BRIGHT}torch-mps is not supported on this device.{Style.RESET_ALL}")
+
 
 print(f"{Fore.GREEN}{Style.BRIGHT}Using torch device: {device_string}{Style.RESET_ALL}")
 
@@ -184,12 +200,10 @@ if "sd" in modules and not sd_use_remote:
     from diffusers import StableDiffusionPipeline
     from diffusers import EulerAncestralDiscreteScheduler
 
-    print("Initializing Stable Diffusion pipeline")
-    sd_device_string = (
-        "cuda" if torch.cuda.is_available() and not args.sd_cpu else "cpu"
-    )
+    print("Initializing Stable Diffusion pipeline...")
+    sd_device_string = cuda_device if torch.cuda.is_available() else 'mps' if torch.backends.mps.is_available() else 'cpu'
     sd_device = torch.device(sd_device_string)
-    sd_torch_dtype = torch.float32 if sd_device_string == "cpu" else torch.float16
+    sd_torch_dtype = torch.float32 if sd_device_string != cuda_device else torch.float16
     sd_pipe = StableDiffusionPipeline.from_pretrained(
         sd_model, custom_pipeline="lpw_stable_diffusion", torch_dtype=sd_torch_dtype
     ).to(sd_device)
@@ -673,7 +687,10 @@ def tts_generate():
     voice["text"] = voice["text"].replace("*", "")
     try:
         audio = tts_service.generate(voice["speaker"], voice["text"])
-        return send_file(audio, mimetype="audio/x-wav")
+        #Added absolute path for audio file for STSL compatibility - Rolyat
+        audio_file_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), os.path.basename(audio))
+        os.rename(audio, audio_file_path)
+        return send_file(audio_file_path, mimetype="audio/x-wav")
     except Exception as e:
         print(e)
         abort(500, voice["speaker"])
@@ -808,6 +825,69 @@ def chromadb_query():
 
     return jsonify(messages)
 
+@app.route("/api/chromadb/multiquery", methods=["POST"])
+@require_module("chromadb")
+def chromadb_multiquery():
+    data = request.get_json()
+    if "chat_list" not in data or not isinstance(data["chat_list"], list):
+        abort(400, '"chat_list" is required and should be a list')
+    if "query" not in data or not isinstance(data["query"], str):
+        abort(400, '"query" is required')
+
+    if "n_results" not in data or not isinstance(data["n_results"], int):
+        n_results = 1
+    else:
+        n_results = data["n_results"]
+
+    messages = []
+
+    for chat_id in data["chat_list"]:
+        if not isinstance(chat_id, str):
+            continue
+
+        try:
+            chat_id_md5 = hashlib.md5(chat_id.encode()).hexdigest()
+            collection = chromadb_client.get_collection(
+                name=f"chat-{chat_id_md5}", embedding_function=chromadb_embed_fn
+            )
+
+            # Skip this chat if the collection is empty
+            if collection.count() == 0:
+                continue
+
+            n_results_per_chat = min(collection.count(), n_results)
+            query_result = collection.query(
+                query_texts=[data["query"]],
+                n_results=n_results_per_chat,
+            )
+            documents = query_result["documents"][0]
+            ids = query_result["ids"][0]
+            metadatas = query_result["metadatas"][0]
+            distances = query_result["distances"][0]
+
+            chat_messages = [
+                {
+                    "id": ids[i],
+                    "date": metadatas[i]["date"],
+                    "role": metadatas[i]["role"],
+                    "meta": metadatas[i]["meta"],
+                    "content": documents[i],
+                    "distance": distances[i],
+                }
+                for i in range(len(ids))
+            ]
+
+            messages.extend(chat_messages)
+        except Exception as e:
+            print(e)
+
+    #remove duplicate msgs, filter down to the right number
+    seen = set()
+    messages = [d for d in messages if not (d['content'] in seen or seen.add(d['content']))]
+    messages = sorted(messages, key=lambda x: x['distance'])[0:n_results]
+
+    return jsonify(messages)
+
 
 @app.route("/api/chromadb/export", methods=["POST"])
 @require_module("chromadb")
@@ -817,7 +897,7 @@ def chromadb_export():
         abort(400, '"chat_id" is required')
 
     chat_id_md5 = hashlib.md5(data["chat_id"].encode()).hexdigest()
-    collection = chromadb_client.get_or_create_collection(
+    collection = chromadb_client.get_collection(
         name=f"chat-{chat_id_md5}", embedding_function=chromadb_embed_fn
     )
     collection_content = collection.get()
