@@ -674,7 +674,7 @@ def tts_speakers():
     ]
     return jsonify(voices)
 
-
+# Added fix for Silero not working as new files were unable to be created if one already existed. - Rolyat 7/7/23
 @app.route("/api/tts/generate", methods=["POST"])
 @require_module("silero-tts")
 def tts_generate():
@@ -686,9 +686,13 @@ def tts_generate():
     # Remove asterisks
     voice["text"] = voice["text"].replace("*", "")
     try:
+        # Remove the destination file if it already exists
+        if os.path.exists('test.wav'):
+            os.remove('test.wav')
+
         audio = tts_service.generate(voice["speaker"], voice["text"])
-        #Added absolute path for audio file for STSL compatibility - Rolyat
         audio_file_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), os.path.basename(audio))
+
         os.rename(audio, audio_file_path)
         return send_file(audio_file_path, mimetype="audio/x-wav")
     except Exception as e:
@@ -800,6 +804,11 @@ def chromadb_query():
         name=f"chat-{chat_id_md5}", embedding_function=chromadb_embed_fn
     )
 
+    if collection.count() == 0:
+        print(f"Queried empty/missing collection for {repr(data['chat_id'])}.")
+        return jsonify([])
+
+
     n_results = min(collection.count(), n_results)
     query_result = collection.query(
         query_texts=[data["query"]],
@@ -897,9 +906,14 @@ def chromadb_export():
         abort(400, '"chat_id" is required')
 
     chat_id_md5 = hashlib.md5(data["chat_id"].encode()).hexdigest()
-    collection = chromadb_client.get_collection(
-        name=f"chat-{chat_id_md5}", embedding_function=chromadb_embed_fn
-    )
+    try:
+        collection = chromadb_client.get_collection(
+            name=f"chat-{chat_id_md5}", embedding_function=chromadb_embed_fn
+        )
+    except Exception as e:
+        print(e)
+        abort(400, "Chat collection not found in chromadb")
+
     collection_content = collection.get()
     documents = collection_content.get('documents', [])
     ids = collection_content.get('ids', [])
@@ -942,6 +956,7 @@ def chromadb_import():
 
 
     collection.upsert(documents=documents, metadatas=metadatas, ids=ids)
+    print(f"Imported {len(ids)} (total {collection.count()}) content entries into {repr(data['chat_id'])}")
 
     return jsonify({"count": len(ids)})
 
