@@ -82,7 +82,6 @@ parser.add_argument('--chroma-persist', help="ChromaDB persistence", default=Tru
 parser.add_argument(
     "--secure", action="store_true", help="Enforces the use of an API key"
 )
-
 sd_group = parser.add_mutually_exclusive_group()
 
 local_sd = sd_group.add_argument_group("sd-local")
@@ -285,7 +284,7 @@ if "chromadb" in modules:
         )
         print(f"ChromaDB is remotely configured at {args.chroma_host}:{chroma_port}")
 
-    chromadb_embedder = SentenceTransformer(embedding_model)
+    chromadb_embedder = SentenceTransformer(embedding_model, device=device_string)
     chromadb_embed_fn = lambda *args, **kwargs: chromadb_embedder.encode(*args, **kwargs).tolist()
 
     # Check if the db is connected and running, otherwise tell the user

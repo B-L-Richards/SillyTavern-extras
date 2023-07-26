@@ -1,4 +1,9 @@
 # SillyTavern - Extras
+
+# Recent news
+
+* We're migrating SillyTavern - Extras to Python 3.11, some of the modules new will be incompatible with old Python 3.10 installs. Stay tuned.
+
 ## What is this
 A set of APIs for various SillyTavern extensions.
 
@@ -6,12 +11,12 @@ A set of APIs for various SillyTavern extensions.
 
 All modules, except for Stable Diffusion, run on the CPU by default. However, they can alternatively be configured to use CUDA (with `--cuda` command line option). When running all modules simultaneously, you can expect a usage of approximately 6 GB of RAM. Loading Stable Diffusion adds an additional couple of GB to the memory usage.
 
-Try on Colab (will give you a link to Extras API):  <a target="_blank" href="https://colab.research.google.com/github/SillyTavern/SillyTavern/blob/main/colab/GPU.ipynb">
+Try on Colab (will give you a link to Extras API):  <a target="_blank" href="https://colab.research.google.com/github/SillyTavern/SillyTavern/blob/release/colab/GPU.ipynb">
   <img src="https://colab.research.google.com/assets/colab-badge.svg" alt="Open In Colab"/>
 </a>
 
 Colab link:
-https://colab.research.google.com/github/SillyTavern/SillyTavern/blob/main/colab/GPU.ipynb
+https://colab.research.google.com/github/SillyTavern/SillyTavern/blob/release/colab/GPU.ipynb
 
 Documentation:
 https://docs.sillytavern.app/
@@ -72,6 +77,10 @@ conda create -n extras
 * Now activate the newly created env
 ```
 conda activate extras
+```
+* Install Python 3.10
+```
+conda install python=3.10
 ```
 * Install the required system packages
 ```
