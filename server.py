@@ -283,6 +283,7 @@ if "chromadb" in modules:
     import chromadb
     import posthog
     from chromadb.config import Settings
+    from chromadb.utils import embedding_functions
     from sentence_transformers import SentenceTransformer
 
     # Assume that the user wants in-memory unless a host is specified
@@ -309,8 +310,7 @@ if "chromadb" in modules:
         )
         print(f"ChromaDB is remotely configured at {args.chroma_host}:{chroma_port}")
 
-    chromadb_embedder = SentenceTransformer(embedding_model, device=device_string)
-    chromadb_embed_fn = lambda *args, **kwargs: chromadb_embedder.encode(*args, **kwargs).tolist()
+    chromadb_embed_fn = embedding_functions.SentenceTransformerEmbeddingFunction(embedding_model, device=device_string)
 
     # Check if the db is connected and running, otherwise tell the user
     try:
